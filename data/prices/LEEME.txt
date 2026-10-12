@@ -1,0 +1,20 @@
+HISTÓRICOS PROPIOS EN CSV  (datos reales, sin red ni clave de API)
+==================================================================
+Guarda aquí un archivo por activo, con el SÍMBOLO de OpenMarket como nombre:
+
+    AAPL.csv   SPX.csv   BTC-USD.csv   EURUSD.csv   XAUUSD.csv   IBEX.csv ...
+
+(La lista de símbolos está en la app: Mercados globales.) Si el archivo existe, OpenMarket lo usa
+con prioridad sobre cualquier proveedor de red y marca el dato como "histórico · Archivo CSV local".
+
+Formato mínimo: una columna de fecha y otra de cierre. Opcionales: apertura, máximo, mínimo, volumen.
+
+    Date,Open,High,Low,Close,Volume
+    2024-01-02,187.15,188.44,183.89,185.64,82488700
+
+Se aceptan: separador "," ";" o tabulador · cabeceras en inglés o español (Fecha, Apertura, Máximo,
+Mínimo, Cierre, Volumen) · fechas AAAA-MM-DD o dd/mm/aaaa · decimales con punto o con coma.
+Sirven las descargas manuales de Stooq, Yahoo Finance y similares (respeta sus condiciones de uso).
+
+Los archivos .csv de esta carpeta no se suben a Git (.gitignore). Se leen en cada petición: guarda
+el archivo y pulsa "Refrescar" en la ficha del activo.

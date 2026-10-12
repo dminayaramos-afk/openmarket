@@ -1,0 +1,1 @@
+{"strategies":[{"id":"buy_hold","label":"Comprar y mantener","params":{}},{"id":"sma_cross","label":"Cruce de medias (SMA rápida/lenta)","params":{"fast":50,"slow":200}},{"id":"rsi_reversion","label":"Reversión por RSI","params":{"period":14,"buy_below":30,"sell_above":55}},{"id":"breakout","label":"Ruptura de máximos (Donchian)","params":{"lookback":55}}]}

@@ -1,0 +1,23 @@
+[project]
+name = "openmarket"
+version = "0.1.0"
+description = "OpenMarket — plataforma financiera abierta, autoalojable y extensible"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pandas>=2.0",
+  "numpy>=1.26",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110

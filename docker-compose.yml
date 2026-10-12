@@ -1,0 +1,11 @@
+services:
+  openmarket:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"   # solo accesible desde este equipo
+    environment:
+      OPENMARKET_API_TOKEN: "${OPENMARKET_API_TOKEN:?define OPENMARKET_API_TOKEN en .env}"
+    volumes:
+      - openmarket-data:/data
+volumes:
+  openmarket-data:
