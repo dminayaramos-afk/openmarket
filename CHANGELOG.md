@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-10-12
+- **Precio en vivo**: Kraken Ticker (cripto, sin clave) y Finnhub `/quote` (acciones/ETF de EE. UU., clave opcional `OPENMARKET_FINNHUB_KEY`). Caché de segundos, etiqueta «tiempo real», nunca se inventa un valor. `GET /api/live`; la ficha de activo se actualiza sola cada 10 s. El formato de Finnhub **no está verificado** contra el servicio real.
+- **Diagnóstico de proveedores en la app**: `POST /api/diagnostics` y botón en Configuración (además de `python -m openmarket.check`). Caché diaria más corta para cripto (15 min) y forex (1 h).
+- **Conversión de divisas en carteras** con tipos de referencia del BCE (Frankfurter), con aviso y sin inventar tipos.
+- **Buscador de oportunidades** (`/api/screener`), **alertas** (`/api/alerts`, evaluadas con la app abierta, sin datos sintéticos), **calculadoras** de opciones (Black-Scholes, griegas, volatilidad implícita) y bonos (precio, YTM, duración, convexidad).
+- Correcciones: la interfaz ya no se desborda en móvil (Dashboard); Stooq/Frankfurter usan fecha UTC.
+- Verificación: 93 pruebas de backend, 18 de frontend, lint limpio, `pip-audit` y `npm audit` sin vulnerabilidades, y recorrido en Chromium real (escritorio y móvil) sin errores de JavaScript.
+
 ## 0.1.1 — 2026-10-12
 - **Proveedor CSV local**: históricos propios en `data/prices/<SÍMBOLO>.csv` (datos reales sin red ni clave), con prioridad sobre la red; formato flexible (`,`/`;`, cabeceras en español/inglés, fechas ISO o dd/mm/aaaa, decimales con punto o coma).
 - **Arranque sin Node.js**: el repositorio incluye `frontend/dist`; `scripts/start.sh` reescrito (Python ≥ 3.10, aviso de `python3-venv`, dependencias solo si cambian, comprobación de puerto, compila solo si falta `dist` y hay Node). `scripts/verify.sh` hace lint, pruebas y, si hay Node, el frontend.

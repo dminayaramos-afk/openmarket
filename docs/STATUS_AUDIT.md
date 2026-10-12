@@ -32,3 +32,9 @@ No uses datos sintéticos como datos de mercado reales. Las señales y el backte
 - **Compatibilidad**: 70 pruebas de backend pasan con Python 3.10 + pandas 2.3 y con Python 3.13 + pandas 3.
 - **Sigue sin verificarse**: llamadas en vivo a Stooq, Kraken y Frankfurter (sin acceso de red en el entorno de desarrollo; ejecuta `python -m openmarket.check`), Docker y la interfaz en un navegador real.
 - Nueva vía de datos reales sin red ni claves: CSV propios en `data/prices/`.
+
+## Seguimiento (v0.2.0)
+
+- **Verificado en el desarrollo**: 93 pruebas de backend (Python 3.13); 18 de frontend; `ruff` limpio; `pip-audit` y `npm audit`: sin vulnerabilidades conocidas; recorrido en **Chromium real** (Playwright) por Dashboard, ficha, oportunidades, alertas (crear/evaluar), opciones, bonos y diagnóstico, en escritorio y móvil: sin errores de JavaScript ni desbordes horizontales.
+- **Sigue sin verificarse**: llamadas reales a Stooq, Kraken (histórico y ticker), Frankfurter y Finnhub (el entorno de desarrollo bloquea esos dominios); el nombre del parámetro de la clave de Stooq (`apikey`); el formato de respuesta de Finnhub; Docker (no hay Docker en el entorno). Usa el botón **Configuración → Comprobar ahora** para comprobarlo desde tu red.
+- **No implementado, por decisión**: noticias, calendario, análisis fundamental/macro, IA financiera y comparación entre exchanges necesitan fuentes externas con licencia clara.

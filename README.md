@@ -4,7 +4,7 @@
 
 Plataforma financiera **de código abierto, autoalojable y privada** para analizar mercados, estudiar riesgos y probar estrategias. Funciona en local, sin servidor central, sin telemetría y sin cuenta de bróker.
 
-> **Estado: v0.1 (Fases A–C parciales, D y E mínimas).** Lee la sección [Qué funciona y qué no](#qué-funciona-y-qué-no) antes de usarla. Análisis informativo: no es asesoramiento financiero ni predice el mercado.
+> **Estado: v0.2.0.** Lee la sección [Qué funciona y qué no](#qué-funciona-y-qué-no) antes de usarla. Análisis informativo: no es asesoramiento financiero ni predice el mercado.
 
 ## Qué funciona y qué no
 
@@ -15,15 +15,21 @@ Plataforma financiera **de código abierto, autoalojable y privada** para analiz
 | Señal BAJISTA/NEUTRAL/ALCISTA + probabilidades empíricas + validación walk-forward | Funciona (experimental, ver más abajo) |
 | Acciones, ETF, índices (Stooq) · Cripto (Kraken spot) · Forex (BCE/Frankfurter) · Materias primas (Stooq) | Código listo; **no verificado contra los servicios reales** (ver Limitaciones) |
 | **Históricos propios en CSV (`data/prices/`)** | Funciona; probado de extremo a extremo con datos de prueba |
-| Carteras manuales, paper trading, importación/exportación CSV | Funciona (sin conversión de divisas) |
+| **Precio en vivo**: cripto (Kraken, sin clave) y acciones/ETF de EE. UU. (Finnhub, con clave gratuita opcional) | Cripto: código listo y probado con respuestas simuladas; Finnhub: **formato sin verificar**; ninguno probado contra el servicio real |
+| Carteras manuales, paper trading, importación/exportación CSV, **conversión de divisas** (tipos de referencia del BCE) | Funciona |
 | Backtesting (4 estrategias, comisiones, slippage, tramo fuera de muestra) | Funciona |
-| Bonos, derivados, buscador de oportunidades, IA financiera, alertas, noticias, calendario, análisis fundamental/macro | **No implementado** (la interfaz lo indica como «pronto») |
+| **Buscador de oportunidades** (ranking técnico del catálogo) | Funciona |
+| **Alertas** de precio, RSI y variación (se evalúan con la app abierta) | Funciona |
+| **Calculadoras** de opciones (Black-Scholes, griegas, volatilidad implícita) y de bonos (precio, YTM, duración, convexidad) | Funciona (teóricas: sin datos de mercado de bonos/opciones) |
+| **Diagnóstico de proveedores** (botón en Configuración y `python -m openmarket.check`) | Funciona |
+| IA financiera, noticias, calendario económico, análisis fundamental/macro, comparación entre exchanges | **No implementado** (la interfaz lo indica como «pronto») |
 | Operaciones reales con brókeres | **No existe, por diseño** |
 
 ### Antes de usarla con datos reales (2 minutos)
 
 1. **Acciones, ETF, índices y materias primas necesitan una clave gratuita de Stooq** (desde marzo de 2026). Solicítala en <https://stooq.com/q/d/?s=spy.us&get_apikey> y ponla en `.env` como `OPENMARKET_STOOQ_APIKEY=...`. Sin clave, esos activos se muestran como **sintéticos** y la app te dice por qué. Cripto (Kraken) y forex (Frankfurter) no necesitan clave.
-2. Comprueba los proveedores en vivo desde tu equipo:
+2. **Precio en vivo de acciones de EE. UU. (opcional):** clave gratuita en <https://finnhub.io> → `OPENMARKET_FINNHUB_KEY=...`. Sin ella, esas fichas muestran el último cierre diario y lo dicen. El precio en vivo de cripto funciona sin clave.
+3. Comprueba los proveedores en vivo desde tu equipo (también hay un botón **Configuración → Comprobar ahora**):
    ```bash
    cd backend && ../.venv/bin/python -m openmarket.check
    ```
@@ -33,8 +39,8 @@ Plataforma financiera **de código abierto, autoalojable y privada** para analiz
 
 1. **Los proveedores reales no se han probado en vivo** (y el nombre del parámetro de la clave de Stooq, `apikey`, no está verificado). El entorno de desarrollo no tenía acceso de red a Stooq, Kraken ni Frankfurter. Los adaptadores se prueban con respuestas simuladas (formato, errores, reintentos, caché, cortacircuitos). Si algún código de símbolo o formato no coincide con el servicio real, el error aparece en *Configuración → Fuentes de datos* y la app muestra datos **sintéticos claramente etiquetados**. Si lo ves, abre un *issue*.
 2. **Las probabilidades no son una predicción.** Son frecuencias históricas del propio activo con el mismo estado de señal. La validación walk-forward las compara con la frecuencia incondicional; en los datos sintéticos de prueba **no la superan** (mejora ≈ 0,2 %), y la interfaz lo dice. No las uses para decidir.
-3. Sin conversión de divisas: las posiciones en otra moneda no suman al total de la cartera.
-4. Datos diarios con retraso; no hay tiempo real.
+3. Conversión de divisas con tipos de referencia del BCE: son indicativos, no ejecutables, y el P/L de posiciones en otra moneda no incluye el efecto de la divisa desde la compra.
+4. Las **señales, probabilidades y backtests usan cierres diarios**. El precio en vivo es una capa aparte (ficha de activo y alertas); no es un feed profesional y no se ha verificado el formato de Finnhub.
 5. Cripto: un único exchange (Kraken). Forex: tipos de referencia, no ejecutables. Materias primas: futuros continuos con saltos de vencimiento.
 
 ## Inicio rápido (Linux)
@@ -84,7 +90,7 @@ El `Dockerfile` y el `docker-compose.yml` están escritos pero **no se han podid
 
 ## Datos, procedencia y honestidad
 
-Cada precio muestra proveedor, fecha del dato, momento de la descarga y **estado**: `sintético`, `retrasado` o `histórico`. Los datos sintéticos nunca se presentan como reales: aparece un aviso en todas las pantallas que los usan y las órdenes de paper trading los marcan en su nota.
+Cada precio muestra proveedor, fecha del dato, momento de la descarga y **estado**: `sintético`, `retrasado`, `histórico` o `tiempo real`. Los datos sintéticos nunca se presentan como reales: aparece un aviso en todas las pantallas que los usan y las órdenes de paper trading los marcan en su nota.
 
 ## Configuración
 

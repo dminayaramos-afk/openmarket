@@ -168,3 +168,28 @@ def test_without_frontend_build_root_explains_instead_of_404(client):
     r = client.get("/")
     assert r.status_code == 200 and "falta la interfaz" in r.text and "/api/docs" in r.text
     assert client.get("/api/health").status_code == 200
+
+
+def test_portfolio_converts_foreign_positions_with_ecb_rate(client):
+    import httpx
+
+    from openmarket.providers import base as provider_base
+
+    def handler(request):
+        if "/latest" in str(request.url):
+            return httpx.Response(200, json={"amount": 1.0, "base": "EUR", "date": "2026-10-09", "rates": {"USD": 1.25}})
+        raise httpx.ConnectError("sin red")
+
+    provider_base.set_transport(httpx.MockTransport(handler))
+    pid = client.post("/api/portfolios", json={"name": "Mixta", "base_currency": "USD"}).json()["id"]
+    client.post(f"/api/portfolios/{pid}/transactions", json={"type": "deposit", "amount": 1000})
+    client.post(f"/api/portfolios/{pid}/transactions", json={"type": "buy", "symbol": "SAN", "quantity": 10, "price": 4})
+    s = client.get(f"/api/portfolios/{pid}").json()
+    pos = s["positions"][0]
+    assert pos["converted"] and pos["fx_rate"] == 1.25 and pos["in_base_currency"]
+    assert abs(pos["value"] - pos["value_native"] * 1.25) < 1e-9
+    assert s["invested_value"] == pos["value"] and s["fx_used"][0]["date"] == "2026-10-09"
+    assert any("tipos de referencia del BCE" in w for w in s["warnings"])
+    assert not any("no se convierten" in w for w in s["warnings"])
+    # coste en base = coste nativo * tipo actual; P/L en base excluye efecto divisa (se avisa)
+    assert abs(pos["cost_basis"] - 10 * 4 * 1.25) < 1e-9

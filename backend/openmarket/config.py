@@ -35,6 +35,10 @@ class Settings:
     cors_origins: tuple[str, ...] = field(default_factory=lambda: ("http://localhost:5173", "http://127.0.0.1:5173"))
     frontend_dist: str = ""
     csv_dir: str = "data/prices"
+    finnhub_key: str = ""
+    finnhub_url: str = "https://finnhub.io/api/v1"
+    live_ttl_crypto: float = 5.0
+    live_ttl_stock: float = 30.0
 
 
 def _load_dotenv() -> None:
@@ -75,4 +79,8 @@ def load_settings() -> Settings:
         cors_origins=tuple(o.strip() for o in cors.split(",") if o.strip()),
         frontend_dist=dist,
         csv_dir=csv_dir,
+        finnhub_key=os.environ.get("OPENMARKET_FINNHUB_KEY", ""),
+        finnhub_url=os.environ.get("OPENMARKET_FINNHUB_URL", "https://finnhub.io/api/v1").rstrip("/"),
+        live_ttl_crypto=_float("OPENMARKET_LIVE_TTL_CRYPTO", 5.0),
+        live_ttl_stock=_float("OPENMARKET_LIVE_TTL_STOCK", 30.0),
     )

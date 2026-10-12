@@ -1,7 +1,7 @@
 """Frankfurter: tipos de cambio de referencia del BCE (indicativos, no ejecutables)."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -26,7 +26,7 @@ class FrankfurterProvider(Provider):
 
     def fetch_daily(self, asset: Asset, years: int) -> tuple[pd.DataFrame, str]:
         base, quote = asset.providers[self.name].split("/")
-        end = date.today()
+        end = datetime.now(timezone.utc).date()
         start = end - timedelta(days=int(365.25 * years) + 7)
         resp = self.http_get(
             f"{self.settings.frankfurter_url}/{start.isoformat()}..{end.isoformat()}",

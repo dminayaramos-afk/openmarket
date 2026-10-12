@@ -80,3 +80,33 @@ def clean_frame(df: pd.DataFrame) -> pd.DataFrame:
     out["volume"] = out["volume"].fillna(0.0)
     out.index.name = "date"
     return out
+
+
+STATUS_REALTIME = "realtime"
+
+
+class LiveUnavailable(Exception):
+    """No hay precio en vivo para el activo (sin proveedor, sin clave, sin conexión o error)."""
+
+
+@dataclass
+class LiveQuote:
+    symbol: str
+    price: float
+    as_of: str
+    provider: str
+    status: str
+    currency: str
+    open_today: float | None = None
+    high_today: float | None = None
+    low_today: float | None = None
+    bid: float | None = None
+    ask: float | None = None
+    volume_24h: float | None = None
+    change_pct_today: float | None = None
+    note: str = ""
+
+    def public(self) -> dict:
+        d = asdict(self)
+        d["status_label"] = STATUS_LABELS.get(self.status, self.status)
+        return d

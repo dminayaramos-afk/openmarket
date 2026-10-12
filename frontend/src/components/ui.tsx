@@ -19,7 +19,7 @@ export function Loading({ label = 'Cargando…' }: { label?: string }) {
 
 export function Section({ title, right, children, className = '' }: { title: string; right?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`card p-4 fade-in ${className}`}>
+    <section className={`card p-4 fade-in min-w-0 ${className}`}>
       <div className="flex items-center justify-between mb-3 gap-3">
         <h2 className="text-sm font-semibold tracking-wide uppercase text-muted">{title}</h2>
         {right}

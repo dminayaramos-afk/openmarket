@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, getToken, setToken } from '../api'
+import { api, getToken, setToken, type DiagResult } from '../api'
 import { useAsync, useTheme } from '../hooks'
 import { fmtDateTime } from '../format'
 import { ErrorBox, Loading, Pill, Section } from '../components/ui'
@@ -10,6 +10,10 @@ export default function Settings() {
   const [theme, toggleTheme] = useTheme()
   const [token, setTok] = useState(getToken())
   const [saved, setSaved] = useState(false)
+  const [diag, setDiag] = useState<DiagResult[] | null>(null)
+  const [diagBusy, setDiagBusy] = useState(false)
+  const [diagErr, setDiagErr] = useState<string | null>(null)
+  const runDiag = () => { setDiagBusy(true); setDiagErr(null); api.diagnostics().then((r) => setDiag(r.results)).catch((e: Error) => setDiagErr(e.message)).finally(() => { setDiagBusy(false); sources.reload() }) }
 
   return (
     <div className="space-y-4">
@@ -40,10 +44,19 @@ export default function Settings() {
               <p className="text-xs mt-1">Aciertos: {s.ok_count} · Errores: {s.error_count}{s.last_error ? <span className="text-down"> · último error ({fmtDateTime(s.last_error_at)}): {s.last_error}</span> : ''}</p>
             </div>))}</div>)}
       </Section>
+      <Section title="Comprobar proveedores de datos" right={<button className="btn" onClick={runDiag} disabled={diagBusy}>{diagBusy ? 'Comprobando…' : 'Comprobar ahora'}</button>}>
+        <p className="text-sm text-muted mb-2">Hace una consulta real a cada proveedor desde tu red y dice si funciona y por qué falla si no. Si algo falla, copia el texto en un issue.</p>
+        {diagErr && <p role="alert" className="text-sm text-down">{diagErr}</p>}
+        {diag && (
+          <ul className="text-sm space-y-1" data-testid="diag-results">
+            {diag.map((r, i) => <li key={i}><Pill tone={r.ok ? 'up' : 'down'}>{r.ok ? 'OK' : 'FALLO'}</Pill> <strong>{r.provider}</strong> <span className="text-muted">{r.kind} {r.symbol}</span> — {r.detail}</li>)}
+          </ul>)}
+      </Section>
       <Section title="Cómo leer el estado de un dato">
         <ul className="text-sm text-muted list-disc ml-5 space-y-1">
           <li><strong className="text-ink">sintético</strong>: generado artificialmente para probar la interfaz; nunca es un precio real.</li>
           <li><strong className="text-ink">retrasado</strong>: dato real de un proveedor gratuito, normalmente cierre diario; no es tiempo real.</li>
+          <li><strong className="text-ink">tiempo real</strong>: precio actual de un proveedor en vivo (Kraken para cripto; Finnhub con clave para acciones de EE. UU.). Las señales y backtests siguen usando cierres diarios.</li>
           <li><strong className="text-ink">histórico</strong>: serie pasada sin pretensión de actualidad.</li>
         </ul>
       </Section>

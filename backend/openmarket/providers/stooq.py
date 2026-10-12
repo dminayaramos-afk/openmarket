@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import io
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -32,7 +32,7 @@ class StooqProvider(Provider):
         if not self.settings.stooq_apikey:
             raise ProviderError(KEY_HELP)
         code = asset.providers[self.name]
-        end = date.today()
+        end = datetime.now(timezone.utc).date()
         start = end - timedelta(days=int(365.25 * years) + 7)
         params = {"s": code, "i": "d", "d1": start.strftime("%Y%m%d"), "d2": end.strftime("%Y%m%d")}
         params["apikey"] = self.settings.stooq_apikey  # nombre del parámetro NO verificado contra el servicio real

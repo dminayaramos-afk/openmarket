@@ -9,6 +9,9 @@ import Asset from './pages/Asset'
 import Portfolios from './pages/Portfolios'
 import Backtest from './pages/Backtest'
 import Settings from './pages/Settings'
+import Screener from './pages/Screener'
+import Alerts from './pages/Alerts'
+import { Bonds, Options } from './pages/Tools'
 import ComingSoon from './pages/ComingSoon'
 
 function NavItem({ m, onNavigate }: { m: ModuleInfo; onNavigate: () => void }) {
@@ -63,6 +66,10 @@ function Shell() {
             <Route path="/activo/:symbol" element={<Asset />} />
             <Route path="/carteras" element={<Portfolios />} />
             <Route path="/backtesting" element={<Backtest />} />
+            <Route path="/oportunidades" element={<Screener />} />
+            <Route path="/alertas" element={<Alerts />} />
+            <Route path="/bonos" element={<Bonds />} />
+            <Route path="/derivados" element={<Options />} />
             <Route path="/configuracion" element={<Settings />} />
             <Route path="/pronto/:id" element={<ComingSoon />} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -33,3 +33,10 @@ No existen en esta versión. Cuando se añadan integraciones con brókeres estar
 
 ## Reportar vulnerabilidades
 Abre un aviso de seguridad privado en el repositorio o escribe al mantenedor. No publiques detalles hasta que haya corrección.
+
+## Claves de proveedores y llamadas salientes (v0.2.0)
+
+- Las claves (`OPENMARKET_STOOQ_APIKEY`, `OPENMARKET_FINNHUB_KEY`) se leen solo del entorno o de `.env` (ignorado por Git) y nunca se devuelven por la API ni se escriben en los registros de OpenMarket.
+- Stooq y Finnhub reciben la clave **como parámetro de la URL** (así lo exige su API según lo que sabemos): puede quedar en los registros de tu proxy o cortafuegos. Usa claves gratuitas y revócalas si las compartes sin querer.
+- Las únicas llamadas salientes son a los proveedores configurados (Stooq, Kraken, Frankfurter y, si defines clave, Finnhub). No hay telemetría. `OPENMARKET_OFFLINE=true` las desactiva todas.
+- `POST /api/diagnostics` hace consultas reales a los proveedores y está limitado a una cada 10 s.

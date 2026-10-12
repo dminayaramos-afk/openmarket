@@ -14,7 +14,7 @@ export interface AssetInfo {
 }
 export interface Quote extends AssetInfo {
   price: number; prev_close: number | null; change: number | null; change_pct: number | null
-  as_of: string | null; provenance: Provenance; spark: number[]
+  as_of: string | null; provenance: Provenance; spark: number[]; live_supported?: boolean
 }
 export interface QuotesResponse {
   quotes: Quote[]; errors: Record<string, string>; last_update: string | null; any_synthetic: boolean
@@ -151,4 +151,38 @@ export const api = {
   portfolio: (id: number) => request<PortfolioSummary>(`/api/portfolios/${id}`),
   portfolioTx: (id: number, body: Record<string, unknown>) => request<Transaction>(`/api/portfolios/${id}/transactions`, json('POST', body)),
   paperOrder: (id: number, body: Record<string, unknown>) => request<Transaction>(`/api/portfolios/${id}/paper-order`, json('POST', body)),
+  live: (symbols: string[]) => request<LiveResponse>(`/api/live?symbols=${symbols.map(encodeURIComponent).join(',')}`),
+  screener: (category?: string, direction?: string) => {
+    const p = new URLSearchParams()
+    if (category) p.set('category', category)
+    if (direction) p.set('direction', direction)
+    return request<ScreenerResponse>(`/api/screener?${p}`)
+  },
+  alerts: () => request<{ alerts: AlertItem[]; kinds: Record<string, string> }>('/api/alerts'),
+  alertCreate: (body: { symbol: string; kind: string; threshold: number; note: string }) => request<AlertItem>('/api/alerts', json('POST', body)),
+  alertDelete: (id: number) => request<{ deleted: number }>(`/api/alerts/${id}`, { method: 'DELETE' }),
+  alertRearm: (id: number) => request<{ rearmed: number }>(`/api/alerts/${id}/rearm`, { method: 'POST' }),
+  alertsCheck: () => request<AlertCheck>('/api/alerts/check', { method: 'POST' }),
+  toolOption: (body: Record<string, unknown>) => request<Record<string, any>>('/api/tools/option', json('POST', body)), // eslint-disable-line @typescript-eslint/no-explicit-any
+  toolBond: (body: Record<string, unknown>) => request<Record<string, any>>('/api/tools/bond', json('POST', body)), // eslint-disable-line @typescript-eslint/no-explicit-any
+  diagnostics: () => request<{ results: DiagResult[]; offline: boolean }>('/api/diagnostics', { method: 'POST' }),
 }
+
+export interface LiveQuoteData {
+  symbol: string; price: number; as_of: string; provider: string; status: string; status_label: string; currency: string
+  open_today: number | null; high_today: number | null; low_today: number | null; bid: number | null; ask: number | null
+  volume_24h: number | null; change_pct_today: number | null; note: string
+}
+export interface LiveResponse { quotes: Record<string, LiveQuoteData>; errors: Record<string, string>; server_time: string }
+export interface ScreenerRow extends AssetInfo {
+  price: number; change_pct: number | null; direction: string; score: number; uncertainty_label: string
+  rsi14: number | null; ret_1m: number | null; ret_3m: number | null; vol_annualized: number | null
+  max_drawdown: number | null; dist_sma200: number | null; data_status: string; data_status_label: string; provider: string
+}
+export interface ScreenerResponse { rows: ScreenerRow[]; missing: string[]; any_synthetic: boolean; method: string }
+export interface AlertItem {
+  id: number; symbol: string; kind: string; kind_label: string; threshold: number; note: string; active: boolean
+  created_at: string; triggered_at: string | null; last_value: number | null; last_source: string | null
+}
+export interface AlertCheck { triggered: (AlertItem & { message: string })[]; skipped: { id: number; symbol: string; reason: string }[]; evaluated: number }
+export interface DiagResult { provider: string; kind: string; symbol: string; ok: boolean; detail: string }

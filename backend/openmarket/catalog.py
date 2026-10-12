@@ -49,12 +49,20 @@ class Asset:
         }
 
 
+def _us(sym: str, stooq: str) -> dict[str, str]:
+    """Códigos de proveedor: Stooq para todos; Finnhub (precio en vivo) solo para valores de EE. UU."""
+    d = {"stooq": stooq}
+    if stooq.endswith(".us"):
+        d["finnhub"] = sym
+    return d
+
+
 def _stock(sym, name, market, cur, stooq):
-    return Asset(sym, name, "stock", market, cur, {"stooq": stooq})
+    return Asset(sym, name, "stock", market, cur, _us(sym, stooq))
 
 
 def _etf(sym, name, market, cur, stooq):
-    return Asset(sym, name, "etf", market, cur, {"stooq": stooq})
+    return Asset(sym, name, "etf", market, cur, _us(sym, stooq))
 
 
 def _index(sym, name, market, stooq):

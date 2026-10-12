@@ -4,6 +4,7 @@ import { api, type AssetDetail } from '../api'
 import { useAsync } from '../hooks'
 import { fmtDateTime, fmtNum, fmtPct, fmtPrice, toneClass } from '../format'
 import { DataBadge, ErrorBox, Kv, Loading, Pill, Section, SignalGauge, SyntheticBanner } from '../components/ui'
+import { LivePrice } from '../components/LivePrice'
 import { PriceChart, type ChartOptions } from '../components/PriceChart'
 
 const INDICATOR_LABELS: [string, string, 'price' | 'num' | 'pct'][] = [
@@ -121,6 +122,7 @@ export default function Asset() {
         <span className="text-xs text-muted">Obtenido: {fmtDateTime(d.provenance.fetched_at)} · {d.provenance.note}</span>
         <button className="btn" onClick={() => api.asset(symbol, true).then(() => { detail.reload(); chart.reload() })}>Refrescar desde el proveedor</button>
       </div>
+      <LivePrice symbol={d.asset.symbol} enabled={!!d.quote.live_supported} />
       <SyntheticBanner show={d.provenance.status === 'synthetic'} />
       {d.provenance.warnings.filter((w) => !w.toLowerCase().includes('sintético')).length > 0 && (
         <div className="card border-warn/60 p-3 text-xs text-muted"><strong className="text-warn">Avisos de la fuente:</strong> {d.provenance.warnings.filter((w) => !w.toLowerCase().includes('sintético')).join(' · ')}</div>

@@ -132,54 +132,79 @@ class PortfolioStore:
         return {"cash": cash, "positions": {k: v for k, v in pos.items() if v["qty"] > 0}, "realized": realized, "fees": fees}
 
     # --- valoración ------------------------------------------------------------------------------
-    def summary(self, pid: int, series: dict[str, PriceSeries]) -> dict:
+    def summary(self, pid: int, series: dict[str, PriceSeries], fx=None) -> dict:
+        """Valora la cartera. `fx(origen, destino) -> FxRate | None` convierte posiciones en otra moneda
+        a la moneda base con el tipo de referencia más reciente; sin tipo de cambio, no se convierte (ni se inventa)."""
         pf = self.get(pid)
         st = self.positions_state(pid)
         base = pf["base_currency"]
         rows, warnings = [], []
-        foreign: dict[str, float] = defaultdict(float)
+        unconverted: dict[str, float] = defaultdict(float)  # moneda -> valor en moneda original
+        fx_used: dict[str, dict] = {}
         for sym, p in st["positions"].items():
             asset = get_asset(sym)
             ps = series.get(sym)
+            cur = asset.currency if asset else None
             last = float(ps.df["close"].iloc[-1]) if ps is not None else None
-            value = last * p["qty"] if last is not None else None
-            cost = p["avg_cost"] * p["qty"]
+            native_value = last * p["qty"] if last is not None else None
+            native_cost = p["avg_cost"] * p["qty"]
+            rate, converted = 1.0, False
+            if cur and cur != base:
+                f = fx(cur, base) if fx else None
+                if f is not None:
+                    rate, converted = f.rate, True
+                    fx_used[cur] = {"pair": f"{cur}/{base}", "rate": f.rate, "date": f.date, "source": f.source}
+                else:
+                    rate = None
+            counted = rate is not None and native_value is not None
+            value = native_value * rate if counted else None
+            cost = native_cost * rate if rate is not None else None
             row = {
                 "symbol": sym, "name": asset.name if asset else sym, "category": asset.category if asset else None,
-                "currency": asset.currency if asset else None, "quantity": p["qty"], "avg_cost": p["avg_cost"],
-                "last_price": last, "value": value, "cost_basis": cost,
-                "unrealized_pnl": (value - cost) if value is not None else None,
-                "unrealized_pct": ((value / cost - 1) if value is not None and cost > 0 else None),
+                "currency": cur, "quantity": p["qty"], "avg_cost": p["avg_cost"],
+                "last_price": last, "value": value, "value_native": native_value, "cost_basis": cost,
+                "unrealized_pnl": ((native_value - native_cost) * rate) if counted else None,
+                "unrealized_pct": ((native_value / native_cost - 1) if counted and native_cost > 0 else None),
                 "data_status": ps.prov.status if ps else None, "provider": ps.prov.provider if ps else None,
-                "in_base_currency": bool(asset and asset.currency == base),
+                "in_base_currency": bool(counted), "converted": converted,
+                "fx_rate": rate if converted else None,
             }
             if ps is not None and ps.is_synthetic:
                 warnings.append(f"{sym}: valorado con datos SINTÉTICOS (no reales).")
-            if not row["in_base_currency"] and value is not None:
-                foreign[row["currency"] or "?"] += value
+            if rate is None and native_value is not None:
+                unconverted[cur or "?"] += native_value
             rows.append(row)
         in_base = [r for r in rows if r["in_base_currency"] and r["value"] is not None]
         invested = sum(r["value"] for r in in_base)
         total = invested + st["cash"]
         for r in rows:
             r["weight"] = (r["value"] / total) if (r["in_base_currency"] and r["value"] is not None and total > 0) else None
-        if foreign:
+        if fx_used:
+            detail = "; ".join(f"{v['pair']} = {v['rate']:.4f} ({v['date'] or 'sin fecha'})" for v in fx_used.values())
             warnings.append(
-                "Hay posiciones en monedas distintas de la base (" + ", ".join(sorted(foreign)) +
-                "): no se convierten a " + base + " y no suman al total. La conversión de divisas no está implementada."
+                f"Posiciones en otras monedas convertidas a {base} con tipos de referencia del BCE, indicativos y no ejecutables: "
+                f"{detail}. El P/L de esas posiciones se expresa al tipo actual: no incluye el efecto de la divisa desde la compra."
+            )
+        if unconverted:
+            warnings.append(
+                "Hay posiciones en monedas distintas de la base (" + ", ".join(sorted(unconverted)) +
+                "): no se convierten a " + base + " y no suman al total porque no hay tipo de cambio disponible ahora mismo."
             )
         unreal = sum(r["unrealized_pnl"] for r in in_base if r["unrealized_pnl"] is not None)
         weights = [r["weight"] for r in rows if r["weight"]]
         hhi = float(sum(w * w for w in weights)) if weights else None
         by_cat: dict[str, float] = defaultdict(float)
+        by_cur: dict[str, float] = defaultdict(float)
         for r in in_base:
             by_cat[r["category"] or "?"] += r["value"]
+            by_cur[r["currency"] or base] += r["value"]
+        by_cur[base] += st["cash"]
         return {
             "portfolio": pf, "cash": st["cash"], "invested_value": invested, "total_value": total,
             "realized_pnl": st["realized"], "unrealized_pnl": unreal, "fees_paid": st["fees"],
-            "positions": rows,
+            "positions": rows, "fx_used": list(fx_used.values()),
             "allocation_by_category": {k: v / total for k, v in by_cat.items()} if total > 0 else {},
-            "allocation_by_currency": {base: (invested + st["cash"]), **{k: v for k, v in foreign.items()}},
+            "allocation_by_currency": {**dict(by_cur), **{f"{k} (sin convertir)": v for k, v in unconverted.items()}},
             "concentration_hhi": hhi,
             "concentration_note": "HHI: 1 = todo en un activo; valores bajos indican diversificación." if hhi else None,
             "warnings": warnings,
@@ -202,6 +227,8 @@ class PortfolioStore:
         curve = (1 + port).cumprod()
         m = risk_metrics(curve)
         m["basis"] = "pro forma: pesos actuales aplicados al histórico (no es el rendimiento real de la cartera)"
+        if any(r["converted"] for r in base_rows):
+            m["basis"] += "; con activos en varias monedas, no incluye el efecto de las divisas"
         m["weights_excl_cash"] = {r["symbol"]: float(x) for r, x in zip(base_rows, w)}
         return m
 

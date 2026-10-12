@@ -95,12 +95,12 @@ export default function Dashboard() {
       <div className="grid lg:grid-cols-3 gap-4">
         <Section title="Estado de las fuentes de datos" className="lg:col-span-2">
           {sources.loading ? <Loading /> : sources.data ? (
-            <table className="t"><thead><tr><th>Fuente</th><th>Estado</th><th>Aciertos</th><th>Errores</th><th>Último error</th></tr></thead>
+            <div className="overflow-x-auto"><table className="t"><thead><tr><th>Fuente</th><th>Estado</th><th>Aciertos</th><th>Errores</th><th>Último error</th></tr></thead>
               <tbody>{sources.data.sources.map((s) => (
                 <tr key={s.name}><td>{s.label}</td>
                   <td>{!s.enabled ? <Pill tone="flat">desactivada</Pill> : s.name === 'synthetic' ? <Pill tone="warn">demostración</Pill> : s.error_count > 0 && s.ok_count === 0 ? <Pill tone="down">sin respuesta</Pill> : s.ok_count > 0 ? <Pill tone="up">operativa</Pill> : <Pill tone="flat">sin usar</Pill>}</td>
                   <td className="num">{s.ok_count}</td><td className="num">{s.error_count}</td>
-                  <td className="text-xs text-muted max-w-xs truncate" title={s.last_error ?? ''}>{s.last_error ?? '—'}</td></tr>))}</tbody></table>
+                  <td className="text-xs text-muted max-w-xs truncate" title={s.last_error ?? ''}>{s.last_error ?? '—'}</td></tr>))}</tbody></table></div>
           ) : <ErrorBox message={sources.error ?? ''} />}
         </Section>
         <Section title="Noticias, calendario y macro">

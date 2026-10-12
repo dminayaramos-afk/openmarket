@@ -11,11 +11,14 @@ import pandas as pd
 from .catalog import CATALOG, Asset, get_asset
 from .config import Settings
 from .db import Database
+from .fx import FxService
 from .models import (
     STATUS_DELAYED,
     STATUS_HISTORICAL,
     STATUS_SYNTHETIC,
     DataUnavailable,
+    LiveQuote,
+    LiveUnavailable,
     PriceSeries,
     Provenance,
     clean_frame,
@@ -26,9 +29,12 @@ from .providers.base import Provider
 from .providers.csvfile import CsvProvider
 from .providers.frankfurter import FrankfurterProvider
 from .providers.kraken import KrakenProvider
+from .providers.live import FinnhubProvider, KrakenTickerProvider, QuoteProvider
 from .providers.stooq import StooqProvider
 
-CACHE_TTL_SECONDS = 6 * 3600  # datos diarios: 6 h
+CACHE_TTL_SECONDS = 6 * 3600  # datos diarios: 6 h por defecto
+# La vela del día cambia a lo largo de la jornada: cripto y forex se refrescan antes que acciones/índices
+CACHE_TTL_BY_CATEGORY = {"crypto": 15 * 60, "forex": 60 * 60}
 INTERVAL = "1d"
 
 
@@ -40,6 +46,11 @@ class DataService:
         self.providers: dict[str, Provider] = {
             p.name: p for p in (StooqProvider(settings), KrakenProvider(settings), FrankfurterProvider(settings))
         }
+        self.live_providers: dict[str, QuoteProvider] = {
+            p.name: p for p in (KrakenTickerProvider(settings), FinnhubProvider(settings))
+        }
+        self.fx = FxService(self.providers["frankfurter"], settings.offline)  # type: ignore[arg-type]
+        self._live_cache: dict[str, tuple[float, LiveQuote]] = {}
         self._pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="om-fetch")
 
     # --- caché --------------------------------------------------------------------------------
@@ -85,7 +96,8 @@ class DataService:
 
         cached = self._cache_get(asset.symbol)
 
-        if cached and not refresh and (time.time() - cached[2]) < CACHE_TTL_SECONDS:
+        ttl = CACHE_TTL_BY_CATEGORY.get(asset.category, CACHE_TTL_SECONDS) if CACHE_TTL_SECONDS > 0 else CACHE_TTL_SECONDS
+        if cached and not refresh and (time.time() - cached[2]) < ttl:
             df, meta, _ = cached
             return PriceSeries(asset.symbol, df, _prov_from_meta(meta, asset, df))
 
@@ -133,6 +145,52 @@ class DataService:
             return PriceSeries(asset.symbol, df, prov)
         raise DataUnavailable("; ".join(errors) or "sin proveedores disponibles")
 
+    # --- precio en vivo ----------------------------------------------------------------------------
+    def _live_provider(self, asset: Asset) -> QuoteProvider | None:
+        for p in self.live_providers.values():
+            if p.supports(asset) and p.available():
+                return p
+        return None
+
+    def live_supported(self, asset: Asset) -> bool:
+        return not self.settings.offline and self._live_provider(asset) is not None
+
+    def get_live(self, symbol: str) -> LiveQuote:
+        """Precio en vivo con caché de segundos. Nunca devuelve datos sintéticos."""
+        asset = get_asset(symbol)
+        if asset is None:
+            raise KeyError(symbol)
+        if self.settings.offline:
+            raise LiveUnavailable("modo sin conexión activado")
+        provider = self._live_provider(asset)
+        if provider is None:
+            hint = ""
+            if asset.category in ("stock", "etf") and "finnhub" in asset.providers:
+                hint = " (define OPENMARKET_FINNHUB_KEY para precios de EE. UU. en vivo)"
+            raise LiveUnavailable(f"sin proveedor de precio en vivo para {asset.symbol}{hint}")
+        ttl = self.settings.live_ttl_crypto if asset.category == "crypto" else self.settings.live_ttl_stock
+        hit = self._live_cache.get(asset.symbol)
+        if hit and time.time() - hit[0] < ttl:
+            return hit[1]
+        try:
+            q = provider.fetch_quote(asset)
+        except Exception as exc:
+            msg = str(exc) or type(exc).__name__
+            if "en pausa" not in msg:
+                provider.record_error(msg)
+            raise LiveUnavailable(msg) from exc
+        provider.record_ok()
+        self._live_cache[asset.symbol] = (time.time(), q)
+        return q
+
+    def get_live_many(self, symbols: list[str]) -> dict[str, LiveQuote | Exception]:
+        def work(sym: str):
+            try:
+                return self.get_live(sym)
+            except Exception as exc:  # noqa: BLE001
+                return exc
+        return dict(zip(symbols, self._pool.map(work, symbols)))
+
     def get_many(self, symbols: list[str], years: int = 5) -> dict[str, PriceSeries | Exception]:
         def work(sym: str):
             try:
@@ -144,6 +202,7 @@ class DataService:
     def sources_status(self) -> list[dict]:
         enabled = not self.settings.offline
         out = [self.csv.info(True), *[p.info(enabled) for p in self.providers.values()]]
+        out += [p.info(enabled and p.available()) for p in self.live_providers.values()]
         out.append({
             "name": "synthetic", "label": "Sintético (demostración)",
             "description": "Datos generados artificialmente para probar la interfaz. Nunca son precios reales.",

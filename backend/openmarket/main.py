@@ -6,6 +6,7 @@ import csv
 import hmac
 import io
 import math
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -16,14 +17,17 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .alerts import KINDS as ALERT_KINDS
+from .alerts import AlertError, AlertStore
 from .analysis import backtest as bt
 from .analysis import indicators as ind
+from .analysis import pricing
 from .analysis import signals as sig
 from .analysis.risk import correlation_matrix, risk_metrics
 from .catalog import CATALOG, CATEGORIES, DEFAULT_DASHBOARD, get_asset, search
 from .config import Settings, load_settings
 from .db import Database
-from .models import DataUnavailable, PriceSeries
+from .models import DataUnavailable, PriceSeries, utcnow_iso
 from .portfolio import PortfolioError, PortfolioStore, paper_fill_price
 from .service import DataService
 
@@ -41,19 +45,24 @@ MODULES = [
     {"id": "commodity", "label": "Materias primas", "status": "partial", "route": "/mercado/commodity",
      "note": "Sin análisis de curva de futuros (contango/backwardation)."},
     {"id": "index", "label": "Índices", "status": "available", "route": "/mercado/index"},
-    {"id": "bonds", "label": "Bonos", "status": "planned", "route": None},
-    {"id": "derivatives", "label": "Derivados", "status": "planned", "route": None},
-    {"id": "screener", "label": "Buscador de oportunidades", "status": "planned", "route": None},
+    {"id": "bonds", "label": "Bonos", "status": "partial", "route": "/bonos",
+     "note": "Calculadora de precio, rendimiento y duración; sin datos de mercado de bonos ni curvas de tipos."},
+    {"id": "derivatives", "label": "Derivados", "status": "partial", "route": "/derivados",
+     "note": "Calculadora de opciones europeas (Black-Scholes) y griegas; sin cadenas de opciones ni futuros de mercado."},
+    {"id": "screener", "label": "Buscador de oportunidades", "status": "available", "route": "/oportunidades",
+     "note": "Ranking por puntuación técnica del catálogo; no es una recomendación."},
     {"id": "quant", "label": "Análisis cuantitativo", "status": "available", "route": "/mercados",
      "note": "Señales, probabilidades empíricas y validación walk-forward en cada ficha."},
     {"id": "ai", "label": "IA financiera", "status": "planned", "route": None},
-    {"id": "portfolios", "label": "Carteras", "status": "available", "route": "/carteras"},
+    {"id": "portfolios", "label": "Carteras", "status": "available", "route": "/carteras",
+     "note": "Con conversión de divisas a la moneda base (tipos de referencia del BCE)."},
     {"id": "risk", "label": "Gestión del riesgo", "status": "partial", "route": "/carteras",
      "note": "Volatilidad, drawdown, VaR histórico y concentración; sin escenarios adversos ni tamaño de posición."},
     {"id": "simulator", "label": "Simulador", "status": "available", "route": "/carteras",
      "note": "Paper trading con carteras simuladas."},
     {"id": "backtest", "label": "Backtesting", "status": "available", "route": "/backtesting"},
-    {"id": "alerts", "label": "Alertas", "status": "planned", "route": None},
+    {"id": "alerts", "label": "Alertas", "status": "available", "route": "/alertas",
+     "note": "Se evalúan mientras la aplicación está abierta; no hay servicio en segundo plano."},
     {"id": "news", "label": "Noticias y calendario", "status": "planned", "route": None},
     {"id": "settings", "label": "Configuración", "status": "available", "route": "/configuracion"},
 ]
@@ -124,6 +133,33 @@ class BacktestIn(BaseModel):
     years: int = Field(default=5, ge=1, le=20)
 
 
+class AlertIn(BaseModel):
+    symbol: str = Field(max_length=20)
+    kind: Literal["price_above", "price_below", "rsi_above", "rsi_below", "change_above", "change_below"]
+    threshold: float = Field(gt=-1e9, lt=1e9)
+    note: str = Field(default="", max_length=200)
+
+
+class OptionIn(BaseModel):
+    kind: Literal["call", "put"] = "call"
+    spot: float = Field(gt=0, lt=1e9)
+    strike: float = Field(gt=0, lt=1e9)
+    days: float = Field(gt=0, le=365 * 50)
+    rate: float = Field(default=0.0, ge=-0.5, le=1.0, description="tipo libre de riesgo anual (0,03 = 3 %)")
+    dividend_yield: float = Field(default=0.0, ge=0, le=1.0)
+    volatility: float | None = Field(default=None, gt=0, le=5, description="anual (0,25 = 25 %)")
+    market_price: float | None = Field(default=None, gt=0, lt=1e9)
+
+
+class BondIn(BaseModel):
+    face: float = Field(default=100.0, gt=0, lt=1e12)
+    coupon: float = Field(ge=0, le=1, description="cupón anual (0,05 = 5 %)")
+    years: float = Field(gt=0, le=100)
+    frequency: Literal[1, 2, 4, 12] = 1
+    ytm: float | None = Field(default=None, gt=-1, lt=5, description="rendimiento anual (0,04 = 4 %)")
+    price: float | None = Field(default=None, gt=0, lt=1e12)
+
+
 def _f(x):
     return None if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))) else float(x)
 
@@ -134,9 +170,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     db.init()
     service = DataService(settings, db)
     store = PortfolioStore(db)
+    alerts = AlertStore(db)
 
     app = FastAPI(title="OpenMarket", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.state.settings, app.state.service, app.state.store = settings, service, store
+    app.state.last_diag = 0.0
 
     app.add_middleware(
         CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST", "DELETE"],
@@ -178,6 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "change_pct": (last / prev - 1) if prev else None,
             "as_of": ps.prov.as_of, "provenance": ps.prov.public(),
             "spark": [round(float(x), 6) for x in close.iloc[-40:]],
+            "live_supported": service.live_supported(a),
         }
 
     # --- generales -------------------------------------------------------------------------------
@@ -370,7 +409,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         state = store.positions_state(pid)
         got = service.get_many(list(state["positions"].keys()))
         series = {s: r for s, r in got.items() if not isinstance(r, Exception)}
-        res = store.summary(pid, series)
+        res = store.summary(pid, series, fx=service.fx.rate)
         res["transactions"] = store.transactions(pid)
         for s, r in got.items():
             if isinstance(r, Exception):
@@ -444,6 +483,136 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Fila {i}: {exc}")
         return respond({"imported": n, "errors": errors[:50]})
+
+    # --- precio en vivo -----------------------------------------------------------------------------
+    @app.get("/api/live")
+    def live(symbols: str = Query(max_length=400)):
+        syms = list(dict.fromkeys(get_asset(s).symbol for s in symbols.split(",") if s.strip() and get_asset(s)))[:20]
+        got = service.get_live_many(syms)
+        out, errors = {}, {}
+        for s_, r in got.items():
+            if isinstance(r, Exception):
+                errors[s_] = str(r)
+            else:
+                out[s_] = r.public()
+        return respond({"quotes": out, "errors": errors, "server_time": utcnow_iso()})
+
+    # --- buscador de oportunidades -------------------------------------------------------------------
+    @app.get("/api/screener")
+    def screener(category: str | None = Query(default=None, max_length=20),
+                 direction: Literal["ALCISTA", "NEUTRAL", "BAJISTA"] | None = None):
+        assets = [a for a in CATALOG.values() if category in (None, a.category)]
+        got = service.get_many([a.symbol for a in assets])
+        rows, missing = [], []
+        for a in assets:
+            ps = got.get(a.symbol)
+            if ps is None or isinstance(ps, Exception):
+                missing.append(a.symbol)
+                continue
+            df, close = ps.df, ps.df["close"]
+            s_ = sig.build_signal(df, with_validation=False)
+            if not s_.get("available"):
+                missing.append(a.symbol)
+                continue
+            if direction and s_["direction"] != direction:
+                continue
+            rets = ind.period_returns(close, a.periods_per_year)
+            sma200 = _f(ind.sma(close, 200).iloc[-1])
+            last = float(close.iloc[-1])
+            prev = float(close.iloc[-2]) if len(close) > 1 else None
+            rows.append({
+                **a.public(), "price": last, "change_pct": (last / prev - 1) if prev else None,
+                "direction": s_["direction"], "score": s_["score"], "uncertainty_label": s_["uncertainty_label"],
+                "rsi14": _f(ind.rsi(close).iloc[-1]), "ret_1m": rets.get("1M"), "ret_3m": rets.get("3M"),
+                "vol_annualized": _f(ind.realized_vol(close, 20, a.periods_per_year).iloc[-1]),
+                "max_drawdown": _f(ind.drawdown(close).min()),
+                "dist_sma200": (last / sma200 - 1) if sma200 else None,
+                "data_status": ps.prov.status, "data_status_label": ps.prov.public()["status_label"],
+                "provider": ps.prov.provider,
+            })
+        rows.sort(key=lambda r: r["score"], reverse=True)
+        return respond({
+            "rows": rows, "missing": missing, "any_synthetic": any(r["data_status"] == "synthetic" for r in rows),
+            "method": "Ranking por puntuación técnica (tendencia, momentum, MACD y RSI). Describe el estado técnico "
+                      "reciente de cada activo; no estima rentabilidad futura ni es una recomendación.",
+        })
+
+    # --- alertas ---------------------------------------------------------------------------------------
+    @app.get("/api/alerts")
+    def alerts_list():
+        return respond({"alerts": alerts.list(), "kinds": ALERT_KINDS})
+
+    @app.post("/api/alerts", status_code=201)
+    def alerts_create(body: AlertIn):
+        try:
+            return respond(alerts.create(body.symbol, body.kind, body.threshold, body.note), 201)
+        except AlertError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.delete("/api/alerts/{aid}")
+    def alerts_delete(aid: int):
+        if not alerts.delete(aid):
+            raise HTTPException(404, "Alerta no encontrada")
+        return respond({"deleted": aid})
+
+    @app.post("/api/alerts/{aid}/rearm")
+    def alerts_rearm(aid: int):
+        if not alerts.rearm(aid):
+            raise HTTPException(404, "Alerta no encontrada")
+        return respond({"rearmed": aid})
+
+    @app.post("/api/alerts/check")
+    def alerts_check():
+        return respond(alerts.evaluate(service))
+
+    # --- calculadoras --------------------------------------------------------------------------------------
+    @app.post("/api/tools/option")
+    def tool_option(body: OptionIn):
+        t = body.days / 365.0
+        try:
+            sigma = body.volatility
+            implied = None
+            if sigma is None:
+                if body.market_price is None:
+                    raise HTTPException(422, "Indica la volatilidad o el precio de mercado de la opción")
+                sigma = implied = pricing.implied_vol(body.market_price, body.spot, body.strike, t, body.rate,
+                                                      body.dividend_yield, body.kind)
+            price = pricing.bsm_price(body.spot, body.strike, t, body.rate, sigma, body.dividend_yield, body.kind)
+            greeks = pricing.bsm_greeks(body.spot, body.strike, t, body.rate, sigma, body.dividend_yield, body.kind)
+        except pricing.PricingError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        intrinsic = max(body.spot - body.strike, 0) if body.kind == "call" else max(body.strike - body.spot, 0)
+        return respond({
+            "kind": body.kind, "theoretical_price": price, "intrinsic_value": intrinsic, "time_value": price - intrinsic,
+            "volatility_used": sigma, "volatility_is_implied": implied is not None, "greeks": greeks,
+            "model": "Black-Scholes-Merton, opción europea, volatilidad y tipos constantes. No usa precios de mercado reales.",
+            "units": "vega y rho por 1 punto porcentual; theta por día natural.",
+        })
+
+    @app.post("/api/tools/bond")
+    def tool_bond(body: BondIn):
+        try:
+            if body.ytm is None and body.price is None:
+                raise HTTPException(422, "Indica el rendimiento (YTM) o el precio")
+            ytm = body.ytm if body.ytm is not None else pricing.bond_ytm(body.price, body.face, body.coupon, body.years, body.frequency)
+            m = pricing.bond_metrics(body.face, body.coupon, body.years, body.frequency, ytm)
+        except pricing.PricingError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return respond({
+            "ytm": ytm, "ytm_is_computed": body.ytm is None, **m,
+            "model": "Flujos descontados a un rendimiento constante; cupones a fecha de cupón (sin cupón corrido). "
+                     "No usa precios de bonos de mercado.",
+        })
+
+    # --- diagnóstico de proveedores ------------------------------------------------------------------------
+    @app.post("/api/diagnostics")
+    def diagnostics():
+        from .check import run_checks
+        now = time.time()
+        if now - app.state.last_diag < 10:
+            raise HTTPException(429, "Espera unos segundos antes de repetir la comprobación")
+        app.state.last_diag = now
+        return respond({"results": run_checks(service, settings), "offline": settings.offline})
 
     # --- frontend compilado --------------------------------------------------------------------------
     dist = Path(settings.frontend_dist)

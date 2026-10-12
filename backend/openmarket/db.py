@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS transactions (
     note TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_tx_portfolio ON transactions(portfolio_id, ts);
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    threshold REAL NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    triggered_at TEXT,
+    last_value REAL,
+    last_source TEXT
+);
 CREATE TABLE IF NOT EXISTS watchlist (
     symbol TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
